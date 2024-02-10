@@ -1,0 +1,37 @@
+Description:
+    >   This program is enabling a telegram bot named passwordCrackingBot (https://t.me/PasWordCraCkingBot)
+        to find the passwords of files you send to it.Is is also able to unhash the MD5 decryption of 200 English words.
+        Moreover, it is able to detect if the files are locked with a password or nt, and if the files are MD5 decrypted or not.
+
+Limitations:
+    >   Can only unhash .txt files
+    >   can only crack open the password of PDF,ZIP files (7zip also, but is buggy).
+
+Architecture:
+    I took a functional approach for creating the bot.
+    There are 3 files.
+    >   app.py - the main file. the file is in charge of generating passwords and decrypting files.
+    >   telegram_communication.py - all the functions that are related to the communication with the bot.
+    >   rainbow_table.py - a dummy file representing the rainbowtable i have stored on my local machine databasem used for
+                           testing only.
+Setup:
+    >   Making sure my personal computer is ON (for db communication).
+    >   The application utilizes threading. It recieves 1 command line argument - which is the number of threads the user wishes to use.
+    >   Once the app is given valid command line argument and is executed - You should be able to communicate with the bot !
+
+Future Maintenance:
+    >   To expand the project to support more file types all you need to do is to add the file type to "decode_file" function in app.py
+        and then write the file decryption function to use in "decode_file".
+
+Issues:
+    >   The ThreadPool i created was found inefficient (atleast on my machine). The work seems to not be parallel -
+        for example: if i set 20 workers - i might only see 2 or 3 workers aat the same time, i could NOT figure out why in time,
+         (As i am not familiar with threading to begin with and i had little to no time making this work).
+         And so, the program is INEFFICIENT and cannot deal with a large password. Moreover, i only used the threadpool
+          with PDF files and did not expand the behaviour to other file types,
+          (although it is not hard to do so), but because the threadpool is not really working so i decided to leave it that way.
+    >   Do not attempt to use 7zip files as for some unknown reason it isn't functioning correctly sometimes.
+
+Notes:
+    > This was a fun program to work on - and also exhausting !
+
