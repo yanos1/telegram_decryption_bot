@@ -32,7 +32,7 @@ client = MongoClient('mongodb://localhost:27017/')
 db = client['MD5RainbowTable']
 collection = db['RainbowTable']
 
-
+stop_search = [False]  # we use this to stop looking for passwords if we wish to cancel the search for them
 ###########################
 # Password Generators
 
@@ -131,11 +131,11 @@ def decode_file(file_id, file_name, chat_id):
         else:
             send_telegram_message(chat_id, "The file is NOT hashed.")
             send_telegram_document(chat_id, file_name)
-        return
+
     send_telegram_message(chat_id, "Trying to extract password..")
 
     if file_extension.lower() == "pdf":
-        content, was_decrypted = decrypt_pdf(file_name)
+        content, was_decrypted = decrypt_pdf(file_name,chat_id)
         if content and was_decrypted:  # the file was decrypted, we send the results back to the user
             send_telegram_message(chat_id, f"Password found: {content}")
             send_telegram_document(chat_id, file_name)
@@ -178,45 +178,76 @@ def decrypt_7zip(file_name, chat_id):
 # DISCLAIMER: I am not sure why, but the threadpool i created here doesnt seem to speed up the password cracking proccess.
 # I couldn't figure it out in time.
 
-def password_decrypter(password_checker_function):
-    """
-    This function is utilizing a ThreadPool to execute concurrent password cracking of files.
-     The pdf decryption is the only current decryption using this decrypter.
-     i didn't update zip and 7zip to use this ThreadPool since the ThreadPool
-      wasn't found useful in terms of speeding up the process for a reason i do not know
-    :param password_checker_function: This is the function that checks if a password opens the file or not.
-     (makes this decrypter able to work with multiple files).
-    :return: the password found and if the file was decrypted to begin with (boolean) as a tuple.
-    """
+# def password_decrypter(password_checker_function,chat_id):
+#     """
+#     This function is utilizing a ThreadPool to execute concurrent password cracking of files.
+#      The pdf decryption is the only current decryption using this decrypter.
+#      i didn't update zip and 7zip to use this ThreadPool since the ThreadPool
+#       wasn't found useful in terms of speeding up the process for a reason i do not know
+#     :param password_checker_function: This is the function that checks if a password opens the file or not.
+#      (makes this decrypter able to work with multiple files).
+#     :return: the password found and if the file was decrypted to begin with (boolean) as a tuple.
+#     """
+#     output_password = None
+#     num_workers = int(sys.argv[1])  # number of threads.
+#     workers_list = [None] * num_workers  # initiating a list of workers.
+#     flag = False  # this will turn true when a password is found
+#     with ThreadPoolExecutor(max_workers=num_workers) as my_pool:
+#         for i, password in enumerate(all_password_combinations(MIN_PASSWORD_LEN_OF_PDF)):
+#             if stop_search_for_passwords(chat_id):
+#                 break
+#             # NOTICE - the min password of the general function should be 1.
+#             # I changed it to MIN_PASSWORD_OF_PDF since only PDF file are currently supported using the ThreadPool
+#             if workers_list[i % num_workers] is None:
+#                 workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
+#             else:
+#                 internal_flag = True
+#                 while internal_flag:
+#                     for worker in workers_list:
+#                         if worker.done():
+#                             internal_flag = False
+#                             if worker.result()[1]:  # password found!
+#                                 print("FOUND!")
+#                                 flag = True
+#                                 output_password = worker.result()[0]
+#                             else:
+#                                 workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
+#                             break
+#             if flag:
+#                 break
+#     return output_password, output_password is not None
+def password_decrypter(password_checker_function, chat_id):
     output_password = None
     num_workers = int(sys.argv[1])  # number of threads.
     workers_list = [None] * num_workers  # initiating a list of workers.
-    flag = False  # this will turn true when a password is found
+
     with ThreadPoolExecutor(max_workers=num_workers) as my_pool:
+        futures = []
         for i, password in enumerate(all_password_combinations(MIN_PASSWORD_LEN_OF_PDF)):
-            # NOTICE - the min password of the general function should be 1.
-            # I changed it to MIN_PASSWORD_OF_PDF since only PDF file are currently supported using the ThreadPool
+            if stop_search_for_passwords(chat_id):
+                break
             if workers_list[i % num_workers] is None:
                 workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
+                futures.append(workers_list[i % num_workers])
             else:
-                internal_flag = True
-                while internal_flag:
-                    for worker in workers_list:
-                        if worker.done():
-                            internal_flag = False
-                            if worker.result()[1]:  # password found!
+                for idx, future in enumerate(futures):
+                    if future.done():
+                        try:
+                            result = future.result()
+                            if result[1]:  # password found!
                                 print("FOUND!")
-                                flag = True
-                                output_password = worker.result()[0]
+                                return result[0], True
                             else:
-                                workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
+                                workers_list[idx] = my_pool.submit(password_checker_function, password)
+                                futures[idx] = workers_list[idx]
+                                break
+                        except Exception as e:
+                            print(f"Error: {e}")
                             break
-            if flag:
-                break
-    return output_password, output_password is not None
+    return output_password, False
 
 
-def decrypt_pdf(file_name):
+def decrypt_pdf(file_name,chat_id):
     """
     Decrypting PDF file function.
      it calls "password decrypter" which utilizes a thread pool to execute password checking faster.
@@ -235,7 +266,7 @@ def decrypt_pdf(file_name):
             pdf_reader = PyPDF2.PdfReader(f)
             if pdf_reader.is_encrypted:  # file has a password !
                 return password_decrypter(partial(password_checker,
-                            pdf_reader))  # partial returns a function that includes pdf reader as its firs argument !
+                            pdf_reader),chat_id)  # partial returns a function that includes pdf reader as its firs argument !
             else:  # file has no password !
                 text = ""
                 for page_num in range(len(pdf_reader.pages)):
@@ -283,6 +314,7 @@ def read_telegram_message(offset):
         }
         data = requests.get(url, data=parameters).json()
         for message in data["result"]:
+            print(message)
             offset[0] = message[
                             "update_id"] + 1  # updating the counter so we only return new messages with each api call
             if 'document' in message["message"]:
@@ -292,10 +324,21 @@ def read_telegram_message(offset):
                 threading.Thread(target=decode_file,
                                  args=(file_id, file_name, message["message"]["chat"]["id"])).start()
 
-            else:  # we are dealing with a message.
-                send_general_message(message["message"]["chat"]["id"])
+            else:  # we are dealing with a message
+                if message["message"]["text"].lower() == "stop":
+                    stop_search[0] = True
+                    break
+                else:
+                    send_general_message(message["message"]["chat"]["id"])
     except Exception as e:
         print("Error processing the data:", str(e))
+
+
+def stop_search_for_passwords(chat_id):
+    if stop_search[0]:
+        send_telegram_message(chat_id, "Stopping the search for passwords")
+        return True
+    return False
 
 
 def main():
@@ -311,6 +354,8 @@ def main():
 
     while True:
         time.sleep(3)  # we check for new messages every 3 seconds
+        if stop_search[0]:
+            stop_search[0] = False
         read_telegram_message(offset)
 
 
