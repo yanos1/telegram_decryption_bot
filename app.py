@@ -9,17 +9,16 @@ import time
 import sys
 import os
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import ThreadPoolExecutor
 
 from telegram_communication import download_file_here, send_general_message, send_telegram_message, \
     send_telegram_document
 
 VALID_ARGUMENT_NUMBER = 2
-
 MIN_PASSWORD_LEN_OF_ZIP = 1
 MIN_PASSWORD_LEN_OF_PDF = 6
-
 MD5_PASSWORD_LENGTH = 32
+
 BOT_TOKEN = "6895682367:AAGmtpDzoAqPZem2y4Th87DUGFLOTTcn6Fs/"
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 GET_MESSAGES = "getUpdates"
