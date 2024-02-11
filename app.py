@@ -7,11 +7,14 @@ import zipfile
 import requests
 import time
 import sys
+import os
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 from telegram_communication import download_file_here, send_general_message, send_telegram_message, \
     send_telegram_document
+
+VALID_ARGUMENT_NUMBER = 2
 
 MIN_PASSWORD_LEN_OF_ZIP = 1
 MIN_PASSWORD_LEN_OF_PDF = 6
@@ -139,12 +142,12 @@ def decode_file(file_id, file_name, chat_id):
         if content and was_decrypted:  # the file was decrypted, we send the results back to the user
             send_telegram_message(chat_id, f"Password found: {content}")
             send_telegram_document(chat_id, file_name)
-            return
+
         elif content and not was_decrypted:  # the file was NOT decrypted.
             send_telegram_message(chat_id, f"No password detected")
             send_telegram_message(chat_id, "File content:")
             send_telegram_message(chat_id, content)
-            return
+
 
     elif file_extension.lower() == 'zip':
         decrypt_zip(file_name, chat_id)
@@ -152,6 +155,7 @@ def decode_file(file_id, file_name, chat_id):
         decrypt_7zip(file_name, chat_id)  # currently not working.
     else:  # if we get here we cannot support the given file.
         send_telegram_message(chat_id, "Unsupported file type.")
+    delete_file(file_name)
 
 
 # THIS FUNCTION IS BUGGY. DONT TRY TO DECRYPT WITH IT.
@@ -175,76 +179,91 @@ def decrypt_7zip(file_name, chat_id):
             pass
 
 
-# DISCLAIMER: I am not sure why, but the threadpool i created here doesnt seem to speed up the password cracking proccess.
-# I couldn't figure it out in time.
-
-# def password_decrypter(password_checker_function,chat_id):
-#     """
-#     This function is utilizing a ThreadPool to execute concurrent password cracking of files.
-#      The pdf decryption is the only current decryption using this decrypter.
-#      i didn't update zip and 7zip to use this ThreadPool since the ThreadPool
-#       wasn't found useful in terms of speeding up the process for a reason i do not know
-#     :param password_checker_function: This is the function that checks if a password opens the file or not.
-#      (makes this decrypter able to work with multiple files).
-#     :return: the password found and if the file was decrypted to begin with (boolean) as a tuple.
-#     """
-#     output_password = None
-#     num_workers = int(sys.argv[1])  # number of threads.
-#     workers_list = [None] * num_workers  # initiating a list of workers.
-#     flag = False  # this will turn true when a password is found
-#     with ThreadPoolExecutor(max_workers=num_workers) as my_pool:
-#         for i, password in enumerate(all_password_combinations(MIN_PASSWORD_LEN_OF_PDF)):
-#             if stop_search_for_passwords(chat_id):
-#                 break
-#             # NOTICE - the min password of the general function should be 1.
-#             # I changed it to MIN_PASSWORD_OF_PDF since only PDF file are currently supported using the ThreadPool
-#             if workers_list[i % num_workers] is None:
-#                 workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
-#             else:
-#                 internal_flag = True
-#                 while internal_flag:
-#                     for worker in workers_list:
-#                         if worker.done():
-#                             internal_flag = False
-#                             if worker.result()[1]:  # password found!
-#                                 print("FOUND!")
-#                                 flag = True
-#                                 output_password = worker.result()[0]
-#                             else:
-#                                 workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
-#                             break
-#             if flag:
-#                 break
-#     return output_password, output_password is not None
+# DISCLAIMER: I am not sure why, but the threadpool sometimes misses on passwords.
+# Try multiple times or change number of threads to find the password.
+# I think the problem is that sometimes passwords arent passed as tasks to threads,
+# but i couldn't tell where that happends in the code in the given time.
 def password_decrypter(password_checker_function, chat_id):
+    """
+      This function is utilizing a ThreadPool to execute concurrent password cracking of files.
+       The pdf decryption is the only current decryption using this decrypter.
+       i didn't update zip and 7zip to use this ThreadPool for time reasons.
+      :param password_checker_function: This is the function that checks if a password opens the file or not.
+       (makes this decrypter able to work with multiple files).
+      :return: the password found and if the file was decrypted to begin with (boolean) as a tuple.
+      """
     output_password = None
     num_workers = int(sys.argv[1])  # number of threads.
     workers_list = [None] * num_workers  # initiating a list of workers.
-
+    starting_time = time.time()
     with ThreadPoolExecutor(max_workers=num_workers) as my_pool:
-        futures = []
         for i, password in enumerate(all_password_combinations(MIN_PASSWORD_LEN_OF_PDF)):
             if stop_search_for_passwords(chat_id):
                 break
-            if workers_list[i % num_workers] is None:
-                workers_list[i % num_workers] = my_pool.submit(password_checker_function, password)
-                futures.append(workers_list[i % num_workers])
+
+            if workers_list[i%num_workers] is None:
+                workers_list[i%num_workers] = my_pool.submit(password_checker_function, password)
             else:
-                for idx, future in enumerate(futures):
+                for idx, future in enumerate(workers_list):
                     if future.done():
-                        try:
                             result = future.result()
                             if result[1]:  # password found!
-                                print("FOUND!")
+                                send_telegram_message(chat_id, f"Time to find: {round(time.time() - starting_time)} seconds")
+                                send_telegram_message(chat_id, f"Passwords Gone Through: {i} approximately")
                                 return result[0], True
                             else:
                                 workers_list[idx] = my_pool.submit(password_checker_function, password)
-                                futures[idx] = workers_list[idx]
                                 break
-                        except Exception as e:
-                            print(f"Error: {e}")
-                            break
     return output_password, False
+
+
+
+# import sys
+# from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+# from threading import Lock
+
+# Define a lock
+# lock = Lock()
+#
+# def password_decrypter(password_checker_function, chat_id):
+#     output_password = None
+#     num_workers = int(sys.argv[1])  # number of threads.
+#     workers_list = [None] * num_workers  # initiating a list of workers.
+#
+#     with ThreadPoolExecutor(max_workers=num_workers) as my_pool:
+#         futures = []
+#         for i, password in enumerate(all_password_combinations(MIN_PASSWORD_LEN_OF_PDF)):
+#             if stop_search_for_passwords(chat_id):
+#                 break
+#             if i % 2000 == 0:
+#                 print(password)
+#
+#             with lock:  # Acquire the lock
+#                 # Check if a worker is available
+#                 available_worker_idx = next((idx for idx, w in enumerate(workers_list) if w is None), None)
+#                 if available_worker_idx is not None:
+#                     # Submit task to the available worker
+#                     workers_list[available_worker_idx] = my_pool.submit(password_checker_function, password)
+#                     futures.append(workers_list[available_worker_idx])
+#                 else:
+#                     # Wait for any worker to complete and submit a new task
+#                     done, _ = wait(futures, return_when=FIRST_COMPLETED)
+#                     for future in done:
+#                         try:
+#                             result = future.result()
+#                             if result[1]:  # password found!
+#                                 return result[0], True
+#                             else:
+#                                 idx = futures.index(future)
+#                                 workers_list[idx] = my_pool.submit(password_checker_function, password)
+#                                 futures[idx] = workers_list[idx]
+#                                 break
+#                         except Exception as e:
+#                             print(f"Error: {e}")
+#                             break
+#
+#     return output_password, False
+
 
 
 def decrypt_pdf(file_name,chat_id):
@@ -299,6 +318,12 @@ def decrypt_zip(path, chat_id):
                     pass
 
 
+def delete_file(file_path):
+    try:
+        os.remove(file_path)
+    except OSError as e:
+        print(f"Error: {e.strerror}")
+
 ###########################
 # Function to handle incoming messages
 def read_telegram_message(offset):
@@ -314,7 +339,6 @@ def read_telegram_message(offset):
         }
         data = requests.get(url, data=parameters).json()
         for message in data["result"]:
-            print(message)
             offset[0] = message[
                             "update_id"] + 1  # updating the counter so we only return new messages with each api call
             if 'document' in message["message"]:
@@ -347,14 +371,14 @@ def main():
      and initializes the communication with the bot.
     :return: None
     """
-    if len(sys.argv) != 2:
+    if len(sys.argv) != VALID_ARGUMENT_NUMBER:
         raise ValueError("Wrong number of arguments. please enter 1 argument as the number of threads to use.")
     if not sys.argv[1].isdigit() or int(sys.argv[1]) <= 0:
         raise ValueError("Please only enter a POSITIVE INTEGER. You have entered something else.")
 
     while True:
-        time.sleep(3)  # we check for new messages every 3 seconds
-        if stop_search[0]:
+        time.sleep(2)  # we check for new messages every 3 seconds
+        if stop_search[0]:  # we reset the stop variable every 3 seconds for further stoppping of files
             stop_search[0] = False
         read_telegram_message(offset)
 

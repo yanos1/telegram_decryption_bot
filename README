@@ -7,6 +7,7 @@ Description:
 Limitations:
     >   Can only unhash .txt files
     >   can only crack open the password of PDF,ZIP files (7zip also, but is buggy).
+    >   passwords must be using numbers and LOWERCASE characters only and len <= 8
 
 Architecture:
     I took a functional approach for creating the bot.
@@ -17,7 +18,7 @@ Architecture:
         testing only.
 Setup:
     >   Making sure my personal computer is ON (for db communication).
-    >   The application utilizes threading. It recieves 1 command line argument - which is the number of threads the user wishes to use.
+    >   The application utilizes threading. It receives 1 command line argument - which is the number of threads the user wishes to use.
     >   Once the app is given valid command line argument and is executed - You should be able to communicate with the bot !
 
 Future Maintenance:
@@ -25,14 +26,15 @@ Future Maintenance:
         and then write the file decryption function to use in "decode_file".
 
 Issues:
-    >   The ThreadPool i created was found inefficient (atleast on my machine). The work seems to not be parallel -
-        for example: if i set 20 workers - i might only see 2 or 3 workers aat the same time, i could NOT figure out why in time,
-         (As i am not familiar with threading to begin with and i had little to no time making this work).
-         And so, the program is INEFFICIENT and cannot deal with a large password. Moreover, i only used the threadpool
-          with PDF files and did not expand the behaviour to other file types,
-          (although it is not hard to do so), but because the threadpool is not really working so i decided to leave it that way.
+    >   The ThreadPool i created sometimes doesnt find the password. from what i see, it sometimes doesnt assign a password as a task properly
+        but i couldn't tell where exactly in the code that happens. if you try again the same password it might work. If you change the thread number it might work.
+        .Moreover i only used the threadpool with PDF files and did not expand the behaviour to other file types,
+         since i first designed the solution differently and changed it later, then ran out of time for the project.
+        I have added (commented out) password_decrypter2 - which is a chatGPT written function that solves this problem but works much slower.
+        I did not write that code and so i am not using it in my final solution.
     >   Do not attempt to use 7zip files as for some unknown reason it isn't functioning correctly sometimes.
 
 Notes:
     > This was a fun program to work on - and also exhausting !
+    > The first password that is checked with x letters is "a"*x
 
